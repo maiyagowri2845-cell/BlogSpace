@@ -9,13 +9,13 @@ from sqlalchemy.orm import relationship, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import Integer, String, Text
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-# Import your forms from the forms.py
 from forms import CreatePostForm, RegisterForm, LoginForm, CommentForm
+import os
 
 
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '8BYkEfBA6O6donzWlSihBXox7C0sKR6b'
+app.config['SECRET_KEY'] = os.environ.get("FLASK_KEY")
 ckeditor = CKEditor(app)
 Bootstrap5(app)
 
@@ -30,14 +30,12 @@ def load_user(user_id):
 # CREATE DATABASE
 class Base(DeclarativeBase):
     pass
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///posts.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get("DB_URI",'sqlite:///posts.db')
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 
 
 # CONFIGURE TABLES
-
-
 class User(UserMixin, db.Model):
     __tablename__ = "users"
     id:Mapped[int] = mapped_column(Integer,primary_key=True)
@@ -91,12 +89,22 @@ gravatar = Gravatar(app,
                     use_ssl=False,
                     base_url=None)
 
+#Home Page
+@app.route('/')
+def get_all_posts():
+    result = db.session.execute(db.select(BlogPost))
+    posts = result.scalars().all()
+    return render_template("index.html", all_posts=posts)
 
-
+#Register Page
 @app.route('/register', methods= ["GET","POST"])
 def register():
     form = RegisterForm()
     if form.validate_on_submit():
+        existing_user = db.session.execute(db.select(User).where(User.email== request.form.get("email"))).scalar_one_or_none()
+        if existing_user:
+            flash("You've already registered with this email. Please log in.")
+            return redirect(url_for("login"))
         hash_and_salted_password = generate_password_hash(password=request.form.get("password"), salt_length=8,method="pbkdf2:sha256")
         new_user = User(
             name= request.form.get("name"),
@@ -105,11 +113,12 @@ def register():
         )
         db.session.add(new_user)
         db.session.commit()
-        return redirect(url_for("get_all_posts"))
+        flash("Registration successful! Please log in.")
+        return redirect(url_for("login"))
     return render_template("register.html", form=form)
 
 
-
+#Login Page
 @app.route('/login', methods= ["GET","POST"])
 def login():
     form = LoginForm()
@@ -128,15 +137,6 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('get_all_posts'))
-
-
-@app.route('/')
-def get_all_posts():
-    result = db.session.execute(db.select(BlogPost))
-    posts = result.scalars().all()
-    return render_template("index.html", all_posts=posts)
-
-
 
 @app.route("/post/<int:post_id>",methods=["POST","GET"])
 def show_post(post_id):
@@ -221,4 +221,4 @@ def contact():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(debug=False, port=5002)
